@@ -1,11 +1,62 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+type kiroHydrationCacheStub struct {
+	snapshot []*Account
+	accounts map[int64]*Account
+}
+
+func (c *kiroHydrationCacheStub) GetSnapshot(context.Context, SchedulerBucket) ([]*Account, bool, error) {
+	return c.snapshot, true, nil
+}
+
+func (c *kiroHydrationCacheStub) SetSnapshot(context.Context, SchedulerBucket, []Account) error {
+	return nil
+}
+
+func (c *kiroHydrationCacheStub) GetAccount(_ context.Context, accountID int64) (*Account, error) {
+	return c.accounts[accountID], nil
+}
+
+func (c *kiroHydrationCacheStub) SetAccount(context.Context, *Account) error {
+	return nil
+}
+
+func (c *kiroHydrationCacheStub) DeleteAccount(context.Context, int64) error {
+	return nil
+}
+
+func (c *kiroHydrationCacheStub) UpdateLastUsed(context.Context, map[int64]time.Time) error {
+	return nil
+}
+
+func (c *kiroHydrationCacheStub) TryLockBucket(context.Context, SchedulerBucket, time.Duration) (bool, error) {
+	return true, nil
+}
+
+func (c *kiroHydrationCacheStub) UnlockBucket(context.Context, SchedulerBucket) error {
+	return nil
+}
+
+func (c *kiroHydrationCacheStub) ListBuckets(context.Context) ([]SchedulerBucket, error) {
+	return nil, nil
+}
+
+func (c *kiroHydrationCacheStub) GetOutboxWatermark(context.Context) (int64, error) {
+	return 0, nil
+}
+
+func (c *kiroHydrationCacheStub) SetOutboxWatermark(context.Context, int64) error {
+	return nil
+}
 
 func TestNormalizeKiroJSONCredentialsArrayWithCompanion(t *testing.T) {
 	refreshToken := strings.Repeat("r", 128)
@@ -105,4 +156,44 @@ func TestKiroDefaultModelsUseKiroModelIDs(t *testing.T) {
 	require.Contains(t, ids, "claude-opus-4.6")
 	require.NotContains(t, ids, "claude-opus-4-7")
 	require.NotContains(t, ids, "claude-sonnet-4-6")
+}
+
+func TestKiroListAccountsHydratesSchedulerSnapshotAccount(t *testing.T) {
+	groupID := int64(7)
+	cache := &kiroHydrationCacheStub{
+		snapshot: []*Account{{
+			ID:          12,
+			Platform:    PlatformKiro,
+			Type:        AccountTypeKiro,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			Credentials: map[string]any{
+				"auth_type": KiroAuthDesktop,
+			},
+		}},
+		accounts: map[int64]*Account{
+			12: {
+				ID:          12,
+				Platform:    PlatformKiro,
+				Type:        AccountTypeKiro,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"auth_type":     KiroAuthDesktop,
+					"refresh_token": "kiro-refresh-token",
+					"access_token":  "kiro-access-token",
+				},
+			},
+		},
+	}
+	snapshot := NewSchedulerSnapshotService(cache, nil, nil, nil, nil)
+	gateway := NewKiroGatewayService(nil, snapshot, nil, nil)
+
+	accounts, err := gateway.listAccounts(context.Background(), &groupID)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	require.Equal(t, "kiro-refresh-token", accounts[0].GetCredential("refresh_token"))
+	require.Equal(t, "kiro-access-token", accounts[0].GetCredential("access_token"))
 }

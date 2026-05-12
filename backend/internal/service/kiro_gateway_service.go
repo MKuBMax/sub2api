@@ -345,12 +345,34 @@ func (s *KiroGatewayService) listAccounts(ctx context.Context, groupID *int64) (
 	}
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, PlatformKiro, true)
-		return accounts, err
+		if err != nil {
+			return nil, err
+		}
+		return s.hydrateAccounts(ctx, accounts)
 	}
 	if groupID != nil {
 		return s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, PlatformKiro)
 	}
 	return s.accountRepo.ListSchedulableByPlatform(ctx, PlatformKiro)
+}
+
+func (s *KiroGatewayService) hydrateAccounts(ctx context.Context, accounts []Account) ([]Account, error) {
+	if s.schedulerSnapshot == nil || len(accounts) == 0 {
+		return accounts, nil
+	}
+	hydrated := make([]Account, 0, len(accounts))
+	for i := range accounts {
+		account := accounts[i]
+		full, err := s.schedulerSnapshot.GetAccount(ctx, account.ID)
+		if err != nil {
+			return nil, err
+		}
+		if full == nil {
+			return nil, fmt.Errorf("selected kiro account %d not found during hydration", account.ID)
+		}
+		hydrated = append(hydrated, *full)
+	}
+	return hydrated, nil
 }
 
 func (s *KiroGatewayService) do(ctx context.Context, account *Account, req *http.Request) (*http.Response, error) {
