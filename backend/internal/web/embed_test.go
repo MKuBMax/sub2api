@@ -437,6 +437,7 @@ func TestFrontendServer_Middleware(t *testing.T) {
 			"/backend-api/codex/responses",
 			"/backend-api/codex/responses/compact",
 			"/antigravity/test",
+			"/kiro/v1/messages",
 			"/setup/init",
 			"/health",
 			"/responses",

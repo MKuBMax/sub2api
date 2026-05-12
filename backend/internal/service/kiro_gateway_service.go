@@ -1101,6 +1101,15 @@ func kiroResolveModel(model string) string {
 	if normalized == "auto-kiro" || normalized == "" {
 		return "auto"
 	}
+	if canonical, ok := kiroCanonicalModel(normalized); ok {
+		if canonical == "auto-kiro" {
+			return "auto"
+		}
+		if canonical == "claude-3.7-sonnet" {
+			return "CLAUDE_3_7_SONNET_20250219_V1_0"
+		}
+		return canonical
+	}
 	if normalized == "claude-4.5-opus-high" || normalized == "claude-4-5-opus-high" {
 		return "claude-opus-4.5"
 	}

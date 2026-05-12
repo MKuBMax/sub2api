@@ -80,6 +80,8 @@ func TestKiroResolveModelAliases(t *testing.T) {
 	require.Equal(t, "claude-haiku-4.5", kiroResolveModel("claude-haiku-4-5-latest"))
 	require.Equal(t, "CLAUDE_3_7_SONNET_20250219_V1_0", kiroResolveModel("claude-3-7-sonnet-20250219"))
 	require.Equal(t, "claude-opus-4.5", kiroResolveModel("claude-4.5-opus-high"))
+	require.Equal(t, "claude-sonnet-4.5", kiroResolveModel("claude-sonnet-4-5-20250929"))
+	require.Equal(t, "claude-opus-4.5", kiroResolveModel("us.anthropic.claude-opus-4-5-20251101-v1:0"))
 	require.Equal(t, "claude-opus-4.7", kiroResolveModel("claude-opus-4-7"))
 }
 
