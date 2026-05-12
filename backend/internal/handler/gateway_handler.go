@@ -39,6 +39,7 @@ type GatewayHandler struct {
 	gatewayService            *service.GatewayService
 	geminiCompatService       *service.GeminiMessagesCompatService
 	antigravityGatewayService *service.AntigravityGatewayService
+	kiroGatewayService        *service.KiroGatewayService
 	userService               *service.UserService
 	billingCacheService       *service.BillingCacheService
 	usageService              *service.UsageService
@@ -59,6 +60,7 @@ func NewGatewayHandler(
 	gatewayService *service.GatewayService,
 	geminiCompatService *service.GeminiMessagesCompatService,
 	antigravityGatewayService *service.AntigravityGatewayService,
+	kiroGatewayService *service.KiroGatewayService,
 	userService *service.UserService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
@@ -94,6 +96,7 @@ func NewGatewayHandler(
 		gatewayService:            gatewayService,
 		geminiCompatService:       geminiCompatService,
 		antigravityGatewayService: antigravityGatewayService,
+		kiroGatewayService:        kiroGatewayService,
 		userService:               userService,
 		billingCacheService:       billingCacheService,
 		usageService:              usageService,
@@ -946,6 +949,23 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
+	if platform == service.PlatformKiro && h.kiroGatewayService != nil {
+		modelIDs, err := h.kiroGatewayService.ListModels(c.Request.Context(), groupID)
+		if err == nil && len(modelIDs) > 0 {
+			models := make([]claude.Model, 0, len(modelIDs))
+			for _, modelID := range modelIDs {
+				models = append(models, claude.Model{
+					ID:          modelID,
+					Type:        "model",
+					DisplayName: modelID,
+					CreatedAt:   "2024-01-01T00:00:00Z",
+				})
+			}
+			c.JSON(http.StatusOK, gin.H{"object": "list", "data": models})
+			return
+		}
+	}
+
 	// Get available models from account configurations (without platform filter)
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, "")
 
@@ -980,6 +1000,43 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		"object": "list",
 		"data":   claude.DefaultModels,
 	})
+}
+
+// KiroChatCompletions handles OpenAI-compatible Kiro chat completions.
+func (h *GatewayHandler) KiroChatCompletions(c *gin.Context) {
+	if h.kiroGatewayService == nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "api_error", "message": "Kiro gateway is not configured"}})
+		return
+	}
+	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "Failed to read request body"}})
+		return
+	}
+	_ = h.kiroGatewayService.ForwardOpenAIChat(c.Request.Context(), c, body)
+}
+
+// KiroMessages handles Anthropic-compatible Kiro messages.
+func (h *GatewayHandler) KiroMessages(c *gin.Context) {
+	if h.kiroGatewayService == nil {
+		h.errorResponse(c, http.StatusBadGateway, "api_error", "Kiro gateway is not configured")
+		return
+	}
+	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		return
+	}
+	_ = h.kiroGatewayService.ForwardAnthropicMessages(c.Request.Context(), c, body)
+}
+
+// KiroCountTokens returns a lightweight count_tokens response for Kiro.
+func (h *GatewayHandler) KiroCountTokens(c *gin.Context) {
+	if h.kiroGatewayService == nil {
+		h.errorResponse(c, http.StatusBadGateway, "api_error", "Kiro gateway is not configured")
+		return
+	}
+	h.kiroGatewayService.CountTokens(c)
 }
 
 // AntigravityModels 返回 Antigravity 支持的全部模型

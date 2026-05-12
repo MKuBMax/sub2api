@@ -67,6 +67,7 @@ type AccountTestService struct {
 	geminiTokenProvider       *GeminiTokenProvider
 	claudeTokenProvider       *ClaudeTokenProvider
 	antigravityGatewayService *AntigravityGatewayService
+	kiroTokenProvider         *KiroTokenProvider
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config
 	tlsFPProfileService       *TLSFingerprintProfileService
@@ -78,6 +79,7 @@ func NewAccountTestService(
 	geminiTokenProvider *GeminiTokenProvider,
 	claudeTokenProvider *ClaudeTokenProvider,
 	antigravityGatewayService *AntigravityGatewayService,
+	kiroTokenProvider *KiroTokenProvider,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
@@ -87,6 +89,7 @@ func NewAccountTestService(
 		geminiTokenProvider:       geminiTokenProvider,
 		claudeTokenProvider:       claudeTokenProvider,
 		antigravityGatewayService: antigravityGatewayService,
+		kiroTokenProvider:         kiroTokenProvider,
 		httpUpstream:              httpUpstream,
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
@@ -192,7 +195,77 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.routeAntigravityTest(c, account, modelID, prompt)
 	}
 
+	if account.Platform == PlatformKiro {
+		return s.testKiroAccountConnection(c, account, modelID, prompt)
+	}
+
 	return s.testClaudeAccountConnection(c, account, modelID)
+}
+
+func (s *AccountTestService) testKiroAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+	ctx := c.Request.Context()
+	testModelID := kiroTestModel(modelID)
+	testPrompt := strings.TrimSpace(prompt)
+	if testPrompt == "" {
+		testPrompt = "hi"
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	if s.kiroTokenProvider == nil {
+		return s.sendErrorAndEnd(c, "Kiro token provider is not configured")
+	}
+	gateway := NewKiroGatewayService(s.accountRepo, nil, s.kiroTokenProvider, s.httpUpstream)
+	payload := buildKiroPayload(testModelID, "", []map[string]any{{"role": "user", "content": testPrompt}}, account)
+
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+	resp, err := gateway.callGenerate(ctx, account, payload)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden {
+		_ = s.kiroTokenProvider.Refresh(ctx, account)
+		_ = resp.Body.Close()
+		resp, err = gateway.callGenerate(ctx, account, payload)
+		if err != nil {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed after refresh: %s", err.Error()))
+		}
+		defer resp.Body.Close()
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Kiro API returned %d: %s", resp.StatusCode, truncateForError(body)))
+	}
+
+	parser := &kiroStreamParser{}
+	if isKiroEventStream(resp.Header.Get("Content-Type")) {
+		streamKiroEventStream(c, resp.Body, parser, func(content string) {
+			s.sendEvent(c, TestEvent{Type: "content", Text: content})
+		})
+		s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+		return nil
+	}
+	buf := make([]byte, 16*1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			for _, content := range parser.feed(buf[:n]) {
+				s.sendEvent(c, TestEvent{Type: "content", Text: content})
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+				return nil
+			}
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
+		}
+	}
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection

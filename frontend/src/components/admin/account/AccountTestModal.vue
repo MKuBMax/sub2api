@@ -276,11 +276,12 @@ let abortController: AbortController | null = null
 const generatedImages = ref<PreviewImage[]>([])
 const previewImageUrl = ref('')
 const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
+const prioritizedKiroModels = ['auto-kiro', 'claude-sonnet-4.5', 'claude-sonnet-4.6', 'claude-opus-4.7', 'claude-opus-4.6', 'claude-opus-4.5', 'claude-sonnet-4', 'claude-haiku-4.5', 'claude-3.7-sonnet']
 const supportsGeminiImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
 
-  return props.account?.platform === 'gemini' || (props.account?.platform === 'antigravity' && props.account?.type === 'apikey')
+  return props.account?.platform === 'gemini' || props.account?.platform === 'kiro' || (props.account?.platform === 'antigravity' && props.account?.type === 'apikey')
 })
 
 const supportsOpenAIImageTest = computed(() => {
@@ -291,8 +292,9 @@ const supportsOpenAIImageTest = computed(() => {
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
 
-const sortTestModels = (models: ClaudeModel[]) => {
-  const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
+const sortTestModels = (models: ClaudeModel[], platform?: string) => {
+  const priorityModels = platform === 'kiro' ? prioritizedKiroModels : prioritizedGeminiModels
+  const priorityMap = new Map(priorityModels.map((id, index) => [id, index]))
 
   return [...models].sort((a, b) => {
     const aPriority = priorityMap.get(a.id) ?? Number.MAX_SAFE_INTEGER
@@ -329,12 +331,12 @@ const loadAvailableModels = async () => {
   selectedModelId.value = '' // Reset selection before loading
   try {
     const models = await adminAPI.accounts.getAvailableModels(props.account.id)
-    availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
-      ? sortTestModels(models)
+    availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity' || props.account.platform === 'kiro'
+      ? sortTestModels(models, props.account.platform)
       : models
     // Default selection by platform
     if (availableModels.value.length > 0) {
-      if (props.account.platform === 'gemini') {
+      if (props.account.platform === 'gemini' || props.account.platform === 'kiro') {
         selectedModelId.value = availableModels.value[0].id
       } else {
         // Try to select Sonnet as default, otherwise use first model

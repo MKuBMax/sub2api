@@ -185,6 +185,8 @@ const defaultClientTab = computed(() => {
       return 'gemini'
     case 'antigravity':
       return 'claude'
+    case 'kiro':
+      return 'claude'
     default:
       return 'claude'
   }
@@ -288,6 +290,12 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
+    case 'kiro':
+      return [
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+        { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
     default:
       return [
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
@@ -330,6 +338,8 @@ const platformDescription = computed(() => {
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
       return t('keys.useKeyModal.antigravity.description')
+    case 'kiro':
+      return 'Kiro 分组可通过 /kiro/v1/messages 或 /kiro/v1/chat/completions 调用。'
     default:
       return t('keys.useKeyModal.description')
   }
@@ -350,6 +360,8 @@ const platformNote = computed(() => {
       return activeClientTab.value === 'claude'
         ? t('keys.useKeyModal.antigravity.claudeNote')
         : t('keys.useKeyModal.antigravity.geminiNote')
+    case 'kiro':
+      return '使用 Kiro 专用路径可以强制只调度 Kiro 账号。'
     default:
       return t('keys.useKeyModal.note')
   }
@@ -385,6 +397,7 @@ const currentFiles = computed((): FileConfig[] => {
   }
   const apiBase = ensureV1(baseRoot)
   const antigravityBase = ensureV1(`${baseRoot}/antigravity`)
+  const kiroBase = ensureV1(`${baseRoot}/kiro`)
   const antigravityGeminiBase = (() => {
     const trimmed = `${baseRoot}/antigravity`.replace(/\/+$/, '')
     return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`
@@ -407,6 +420,8 @@ const currentFiles = computed((): FileConfig[] => {
           generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'),
           generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)')
         ]
+      case 'kiro':
+        return [generateOpenCodeConfig('anthropic', kiroBase, apiKey, 'opencode.json (Kiro)')]
       default:
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
     }
@@ -428,6 +443,11 @@ const currentFiles = computed((): FileConfig[] => {
         return [generateGeminiCliContent(`${baseUrl}/antigravity`, apiKey)]
       }
       return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey)
+    case 'kiro':
+      if (activeClientTab.value === 'codex') {
+        return generateOpenAIFiles(`${baseUrl}/kiro`, apiKey)
+      }
+      return generateAnthropicFiles(`${baseUrl}/kiro`, apiKey)
     default:
       return generateAnthropicFiles(baseUrl, apiKey)
   }

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g., v1.0.0)'
+        description: 'Tag to release (e.g., v0.1.126.1 for fork builds)'
         required: true
         type: string
       simple_release:
@@ -26,8 +26,37 @@ permissions:
   packages: write
 
 jobs:
+  release-kind:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.kind.outputs.tag }}
+      version: ${{ steps.kind.outputs.version }}
+      four_part: ${{ steps.kind.outputs.four_part }}
+    steps:
+      - name: Detect release version kind
+        id: kind
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME="${{ github.event.inputs.tag }}"
+          else
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG_NAME#v}"
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            FOUR_PART=true
+          else
+            FOUR_PART=false
+          fi
+          echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "four_part=$FOUR_PART" >> "$GITHUB_OUTPUT"
+          echo "Release tag: $TAG_NAME"
+          echo "Version: $VERSION"
+          echo "Four-part fork release: $FOUR_PART"
+
   # Update VERSION file with tag version
   update-version:
+    needs: [release-kind]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,12 +64,7 @@ jobs:
 
       - name: Update VERSION file
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=${{ github.event.inputs.tag }}
-            VERSION=${VERSION#v}
-          else
-            VERSION=${GITHUB_REF#refs/tags/v}
-          fi
+          VERSION="${{ needs.release-kind.outputs.version }}"
           echo "$VERSION" > backend/cmd/server/VERSION
           echo "Updated VERSION file to: $VERSION"
 
@@ -52,10 +76,13 @@ jobs:
           retention-days: 1
 
   build-frontend:
+    needs: [release-kind]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-kind.outputs.tag }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -85,7 +112,8 @@ jobs:
           retention-days: 1
 
   release:
-    needs: [update-version, build-frontend]
+    needs: [release-kind, update-version, build-frontend]
+    if: ${{ needs.release-kind.outputs.four_part != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -149,7 +177,7 @@ jobs:
         id: tag_message
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
+            TAG_NAME=${{ needs.release-kind.outputs.tag }}
           else
             TAG_NAME=${GITHUB_REF#refs/tags/}
           fi
@@ -214,7 +242,7 @@ jobs:
           fi
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
+            TAG_NAME=${{ needs.release-kind.outputs.tag }}
           else
             TAG_NAME=${GITHUB_REF#refs/tags/}
           fi
@@ -272,24 +300,130 @@ jobs:
                 disable_web_page_preview: true
               }')"
 
-  sync-version-file:
-    needs: [release]
-    if: ${{ needs.release.result == 'success' }}
+  custom-binary-release:
+    needs: [release-kind, update-version, build-frontend]
+    if: ${{ needs.release-kind.outputs.four_part == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout default branch
+      - name: Checkout release tag
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          ref: ${{ needs.release-kind.outputs.tag }}
 
-      - name: Sync VERSION file to released tag
+      - name: Download VERSION artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: version-file
+          path: backend/cmd/server/
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: backend/internal/web/dist/
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache-dependency-path: backend/go.sum
+
+      - name: Build Linux release archives
+        env:
+          VERSION: ${{ needs.release-kind.outputs.version }}
+          TAG_NAME: ${{ needs.release-kind.outputs.tag }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=${{ github.event.inputs.tag }}
-            VERSION=${VERSION#v}
+          set -euo pipefail
+          mkdir -p dist
+          COMMIT="$(git rev-parse --short HEAD)"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          for arch in amd64 arm64; do
+            package_dir="$(mktemp -d)"
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build \
+              -C backend \
+              -tags=embed \
+              -ldflags "-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.Date=${DATE} -X main.BuildType=release" \
+              -o "${package_dir}/sub2api" \
+              ./cmd/server
+            cp LICENSE "${package_dir}/" 2>/dev/null || true
+            cp README* "${package_dir}/" 2>/dev/null || true
+            cp -R deploy "${package_dir}/deploy"
+            tar -czf "dist/sub2api_${VERSION}_linux_${arch}.tar.gz" -C "$package_dir" .
+            rm -rf "$package_dir"
+          done
+
+          (cd dist && sha256sum sub2api_${VERSION}_linux_*.tar.gz > checksums.txt)
+
+      - name: Read tag message
+        id: tag_message
+        run: |
+          TAG_NAME="${{ needs.release-kind.outputs.tag }}"
+          git fetch --tags --force
+          TAG_MESSAGE=$(git tag -l --format='%(contents:body)' "$TAG_NAME")
+          echo "message<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TAG_MESSAGE" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.release-kind.outputs.tag }}
+          VERSION: ${{ needs.release-kind.outputs.version }}
+          TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
+        run: |
+          set -euo pipefail
+          notes_file="$(mktemp)"
+          {
+            echo "> AI API Gateway Platform - fork build"
+            echo
+            if [ -n "$TAG_MESSAGE" ]; then
+              echo "$TAG_MESSAGE"
+              echo
+            fi
+            echo "## Installation"
+            echo
+            echo '```bash'
+            echo "curl -sSL https://raw.githubusercontent.com/${{ github.repository }}/main/deploy/install.sh | sudo bash -s -- upgrade"
+            echo '```'
+          } > "$notes_file"
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" dist/* --clobber
+            gh release edit "$TAG_NAME" --title "Sub2API ${VERSION}" --notes-file "$notes_file"
           else
-            VERSION=${GITHUB_REF#refs/tags/v}
+            gh release create "$TAG_NAME" dist/* --title "Sub2API ${VERSION}" --notes-file "$notes_file"
           fi
+
+  sync-version-file:
+    needs: [release-kind, release, custom-binary-release]
+    if: ${{ always() && (needs.release.result == 'success' || needs.custom-binary-release.result == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve branch containing release tag
+        id: branch
+        run: |
+          TAG_NAME="${{ needs.release-kind.outputs.tag }}"
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+          TAG_SHA="$(git rev-list -n 1 "$TAG_NAME")"
+          if git merge-base --is-ancestor "$TAG_SHA" origin/custom/dev 2>/dev/null; then
+            TARGET_BRANCH="custom/dev"
+          else
+            TARGET_BRANCH="${{ github.event.repository.default_branch }}"
+          fi
+          echo "target=$TARGET_BRANCH" >> "$GITHUB_OUTPUT"
+          git checkout "$TARGET_BRANCH"
+
+      - name: Sync VERSION file to released branch
+        run: |
+          VERSION="${{ needs.release-kind.outputs.version }}"
 
           CURRENT_VERSION=$(tr -d '\r\n' < backend/cmd/server/VERSION || true)
           if [ "$CURRENT_VERSION" = "$VERSION" ]; then
@@ -303,4 +437,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add backend/cmd/server/VERSION
           git commit -m "chore: sync VERSION to ${VERSION} [skip ci]"
-          git push origin HEAD:${{ github.event.repository.default_branch }}
+          git push origin HEAD:${{ steps.branch.outputs.target }}

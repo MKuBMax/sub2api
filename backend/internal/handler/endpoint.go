@@ -36,6 +36,7 @@ const (
 // prefixes like /antigravity, /openai) to its canonical form.
 //
 //	"/antigravity/v1/messages"   → "/v1/messages"
+//	"/kiro/v1/messages"          → "/v1/messages"
 //	"/v1/chat/completions"       → "/v1/chat/completions"
 //	"/openai/v1/responses/foo"   → "/v1/responses"
 //	"/v1beta/models/gemini:gen"  → "/v1beta/models"
@@ -68,6 +69,7 @@ func NormalizeInboundEndpoint(path string) string {
 //   - Anthropic  → /v1/messages
 //   - Gemini     → /v1beta/models
 //   - Antigravity → /v1/messages (Claude) or gemini (Gemini)
+//   - Kiro        → /v1/messages or /v1/chat/completions
 //   - Antigravity routes may target either Claude or Gemini, so the
 //     inbound endpoint is used to distinguish.
 func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
@@ -95,6 +97,11 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 		// Antigravity accounts serve both Claude and Gemini.
 		if inbound == EndpointGeminiModels {
 			return EndpointGeminiModels
+		}
+		return EndpointMessages
+	case service.PlatformKiro:
+		if inbound == EndpointChatCompletions {
+			return EndpointChatCompletions
 		}
 		return EndpointMessages
 	}

@@ -3181,6 +3181,9 @@ func (s *SettingService) GetFallbackModel(ctx context.Context, platform string) 
 	case PlatformAntigravity:
 		key = SettingKeyFallbackModelAntigravity
 		defaultModel = "gemini-2.5-pro"
+	case PlatformKiro:
+		key = SettingKeyFallbackModelKiro
+		defaultModel = "claude-sonnet-4.5"
 	default:
 		return ""
 	}

@@ -42,6 +42,10 @@ func RegisterGatewayRoutes(
 	{
 		// /v1/messages: auto-route based on group platform
 		gateway.POST("/messages", func(c *gin.Context) {
+			if getGroupPlatform(c) == service.PlatformKiro {
+				h.Gateway.KiroMessages(c)
+				return
+			}
 			if getGroupPlatform(c) == service.PlatformOpenAI {
 				h.OpenAIGateway.Messages(c)
 				return
@@ -50,6 +54,10 @@ func RegisterGatewayRoutes(
 		})
 		// /v1/messages/count_tokens: OpenAI groups get 404
 		gateway.POST("/messages/count_tokens", func(c *gin.Context) {
+			if getGroupPlatform(c) == service.PlatformKiro {
+				h.Gateway.KiroCountTokens(c)
+				return
+			}
 			if getGroupPlatform(c) == service.PlatformOpenAI {
 				c.JSON(http.StatusNotFound, gin.H{
 					"type": "error",
@@ -82,6 +90,10 @@ func RegisterGatewayRoutes(
 		gateway.GET("/responses", h.OpenAIGateway.ResponsesWebSocket)
 		// OpenAI Chat Completions API: auto-route based on group platform
 		gateway.POST("/chat/completions", func(c *gin.Context) {
+			if getGroupPlatform(c) == service.PlatformKiro {
+				h.Gateway.KiroChatCompletions(c)
+				return
+			}
 			if getGroupPlatform(c) == service.PlatformOpenAI {
 				h.OpenAIGateway.ChatCompletions(c)
 				return
@@ -149,6 +161,10 @@ func RegisterGatewayRoutes(
 	}
 	// OpenAI Chat Completions API（不带v1前缀的别名）— auto-route based on group platform
 	r.POST("/chat/completions", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformKiro {
+			h.Gateway.KiroChatCompletions(c)
+			return
+		}
 		if getGroupPlatform(c) == service.PlatformOpenAI {
 			h.OpenAIGateway.ChatCompletions(c)
 			return
@@ -211,6 +227,21 @@ func RegisterGatewayRoutes(
 		antigravityV1Beta.GET("/models", h.Gateway.GeminiV1BetaListModels)
 		antigravityV1Beta.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
 		antigravityV1Beta.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
+	}
+
+	kiroV1 := r.Group("/kiro/v1")
+	kiroV1.Use(bodyLimit)
+	kiroV1.Use(clientRequestID)
+	kiroV1.Use(opsErrorLogger)
+	kiroV1.Use(endpointNorm)
+	kiroV1.Use(middleware.ForcePlatform(service.PlatformKiro))
+	kiroV1.Use(gin.HandlerFunc(apiKeyAuth))
+	kiroV1.Use(requireGroupAnthropic)
+	{
+		kiroV1.POST("/messages", h.Gateway.KiroMessages)
+		kiroV1.POST("/messages/count_tokens", h.Gateway.KiroCountTokens)
+		kiroV1.GET("/models", h.Gateway.Models)
+		kiroV1.POST("/chat/completions", h.Gateway.KiroChatCompletions)
 	}
 
 }

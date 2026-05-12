@@ -76,6 +76,18 @@ const antigravityModels = [
   'tab_flash_lite_preview'
 ]
 
+const kiroModels = [
+  'auto-kiro',
+  'claude-sonnet-4',
+  'claude-haiku-4.5',
+  'claude-sonnet-4.5',
+  'claude-opus-4.5',
+  'claude-sonnet-4.6',
+  'claude-opus-4.6',
+  'claude-opus-4.7',
+  'claude-3.7-sonnet'
+]
+
 // 智谱 GLM
 const zhipuModels = [
   'glm-4', 'glm-4v', 'glm-4-plus', 'glm-4-0520',
@@ -354,6 +366,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'claude': return claudeModels
     case 'gemini': return geminiModels
     case 'antigravity': return antigravityModels
+    case 'kiro': return kiroModels
     case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
     case 'deepseek': return deepseekModels

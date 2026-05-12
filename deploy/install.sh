@@ -2,7 +2,7 @@
 #
 # Sub2API Installation Script
 # Sub2API 安装脚本
-# Usage: curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/catchyan/sub2api/main/deploy/install.sh | bash
 #
 
 set -e
@@ -16,7 +16,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-GITHUB_REPO="Wei-Shaw/sub2api"
+GITHUB_REPO="catchyan/sub2api"
 INSTALL_DIR="/opt/sub2api"
 SERVICE_NAME="sub2api"
 SERVICE_USER="sub2api"
@@ -136,7 +136,7 @@ declare -A MSG_ZH=(
     ["cmd_uninstall"]="卸载 Sub2API"
     ["cmd_install_version"]="安装/回退到指定版本"
     ["cmd_list_versions"]="列出可用版本"
-    ["opt_version"]="指定要安装的版本号 (例如: v1.0.0)"
+    ["opt_version"]="指定要安装的版本号 (例如: v0.1.126.1)"
 
     # Server configuration
     ["server_config_title"]="服务器配置"
@@ -261,7 +261,7 @@ declare -A MSG_EN=(
     ["cmd_uninstall"]="Remove Sub2API"
     ["cmd_install_version"]="Install/rollback to a specific version"
     ["cmd_list_versions"]="List available versions"
-    ["opt_version"]="Specify version to install (e.g., v1.0.0)"
+    ["opt_version"]="Specify version to install (e.g., v0.1.126.1)"
 
     # Server configuration
     ["server_config_title"]="Server Configuration"
@@ -544,7 +544,7 @@ validate_version() {
 get_current_version() {
     if [ -f "$INSTALL_DIR/sub2api" ]; then
         # Use grep -E for better compatibility (works on macOS and Linux)
-        "$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown"
+        "$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+(\.[0-9]+){2,3}' | head -1 || echo "unknown"
     else
         echo "not_installed"
     fi
@@ -655,7 +655,7 @@ install_service() {
     cat > /etc/systemd/system/sub2api.service << EOF
 [Unit]
 Description=Sub2API - AI API Gateway Platform
-Documentation=https://github.com/Wei-Shaw/sub2api
+Documentation=https://github.com/${GITHUB_REPO}
 After=network.target postgresql.service redis.service
 Wants=postgresql.service redis.service
 
@@ -800,7 +800,7 @@ upgrade() {
     print_info "$(msg 'upgrading')"
 
     # Get current version
-    CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+(\.[0-9]+){2,3}' || echo "unknown")
     print_info "$(msg 'current_version'): $CURRENT_VERSION"
 
     # Stop service
@@ -1008,6 +1008,32 @@ main() {
     # Restore positional arguments
     set -- "${positional_args[@]}"
 
+    if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+        echo "$(msg 'usage'): $0 [command] [options]"
+        echo ""
+        echo "Commands:"
+        echo "  $(msg 'cmd_none')            $(msg 'cmd_install')"
+        echo "  install              $(msg 'cmd_install')"
+        echo "  upgrade              $(msg 'cmd_upgrade')"
+        echo "  rollback <version>   $(msg 'cmd_install_version')"
+        echo "  list-versions        $(msg 'cmd_list_versions')"
+        echo "  uninstall            $(msg 'cmd_uninstall')"
+        echo ""
+        echo "Options:"
+        echo "  -v, --version <ver>  $(msg 'opt_version')"
+        echo "  -y, --yes            Skip confirmation prompts (for uninstall)"
+        echo ""
+        echo "Examples:"
+        echo "  $0                        # Install latest version"
+        echo "  $0 install -v v0.1.126.1  # Install specific version"
+        echo "  $0 upgrade                # Upgrade to latest"
+        echo "  $0 upgrade -v v0.1.126.1  # Upgrade to specific version"
+        echo "  $0 rollback v0.1.126.1    # Rollback to v0.1.126.1"
+        echo "  $0 list-versions          # List available versions"
+        echo ""
+        exit 0
+    fi
+
     # Select language first
     select_language
 
@@ -1099,31 +1125,6 @@ main() {
         uninstall|remove)
             check_root
             uninstall
-            exit 0
-            ;;
-        --help|-h)
-            echo "$(msg 'usage'): $0 [command] [options]"
-            echo ""
-            echo "Commands:"
-            echo "  $(msg 'cmd_none')            $(msg 'cmd_install')"
-            echo "  install              $(msg 'cmd_install')"
-            echo "  upgrade              $(msg 'cmd_upgrade')"
-            echo "  rollback <version>   $(msg 'cmd_install_version')"
-            echo "  list-versions        $(msg 'cmd_list_versions')"
-            echo "  uninstall            $(msg 'cmd_uninstall')"
-            echo ""
-            echo "Options:"
-            echo "  -v, --version <ver>  $(msg 'opt_version')"
-            echo "  -y, --yes            Skip confirmation prompts (for uninstall)"
-            echo ""
-            echo "Examples:"
-            echo "  $0                        # Install latest version"
-            echo "  $0 install -v v0.1.0      # Install specific version"
-            echo "  $0 upgrade                # Upgrade to latest"
-            echo "  $0 upgrade -v v0.2.0      # Upgrade to specific version"
-            echo "  $0 rollback v0.1.0        # Rollback to v0.1.0"
-            echo "  $0 list-versions          # List available versions"
-            echo ""
             exit 0
             ;;
     esac

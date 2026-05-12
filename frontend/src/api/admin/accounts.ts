@@ -135,6 +135,38 @@ export async function create(accountData: CreateAccountRequest): Promise<Account
   return data
 }
 
+export interface KiroImportAccount {
+  source_type: 'json' | 'sqlite' | 'refresh_token'
+  auth_type: 'kiro_desktop' | 'aws_sso_oidc'
+  display_name: string
+  credentials: Record<string, unknown>
+  extra?: Record<string, unknown>
+  warning_message?: string
+}
+
+export interface KiroImportRequest {
+  source_type: 'json' | 'sqlite' | 'refresh_token'
+  content?: string
+  content_base64?: string
+  refresh_token?: string
+  access_token?: string
+  profile_arn?: string
+  region?: string
+  api_region?: string
+  auth_region?: string
+  client_id?: string
+  client_secret?: string
+  machine_id?: string
+  kiro_version?: string
+  companion_json?: string
+  default_name?: string
+}
+
+export async function importKiroCredentials(payload: KiroImportRequest): Promise<{ accounts: KiroImportAccount[] }> {
+  const { data } = await apiClient.post<{ accounts: KiroImportAccount[] }>('/admin/accounts/kiro/import', payload)
+  return data
+}
+
 /**
  * Update account
  * @param id - Account ID
@@ -642,6 +674,7 @@ export const accountsAPI = {
   listWithEtag,
   getById,
   create,
+  importKiroCredentials,
   update,
   checkMixedChannelRisk,
   delete: deleteAccount,

@@ -70,7 +70,7 @@
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <div class="mt-2 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
+        <div class="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-700 md:grid-cols-5" data-tour="account-form-platform">
           <button
             type="button"
             @click="form.platform = 'anthropic'"
@@ -146,6 +146,19 @@
           >
             <Icon name="cloud" size="sm" />
             Antigravity
+          </button>
+          <button
+            type="button"
+            @click="form.platform = 'kiro'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'kiro'
+                ? 'bg-white text-cyan-600 shadow-sm dark:bg-dark-600 dark:text-cyan-400'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <Icon name="terminal" size="sm" />
+            Kiro
           </button>
         </div>
       </div>
@@ -977,6 +990,161 @@
             >
               + {{ preset.label }}
             </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Kiro credential import -->
+      <div v-if="form.platform === 'kiro'" class="space-y-4">
+        <div class="rounded-lg bg-cyan-50 p-3 text-xs text-cyan-800 dark:bg-cyan-900/20 dark:text-cyan-300">
+          推荐直接导入 Kiro / AWS SSO JSON 或 kiro-cli SQLite；也支持 Kiro Desktop refresh token。这里只做凭据导入，不提供浏览器 OAuth 登录。
+        </div>
+
+        <div>
+          <label class="input-label">导入方式</label>
+          <div class="mt-2 grid grid-cols-3 gap-3">
+            <button
+              type="button"
+              @click="kiroSourceType = 'json'"
+              :class="[
+                'rounded-lg border-2 p-3 text-left transition-all',
+                kiroSourceType === 'json'
+                  ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20'
+                  : 'border-gray-200 hover:border-cyan-300 dark:border-dark-600 dark:hover:border-cyan-700'
+              ]"
+            >
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">JSON</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">Desktop / AWS SSO</span>
+            </button>
+            <button
+              type="button"
+              @click="kiroSourceType = 'sqlite'"
+              :class="[
+                'rounded-lg border-2 p-3 text-left transition-all',
+                kiroSourceType === 'sqlite'
+                  ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20'
+                  : 'border-gray-200 hover:border-cyan-300 dark:border-dark-600 dark:hover:border-cyan-700'
+              ]"
+            >
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">SQLite</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">kiro-cli / amazon-q</span>
+            </button>
+            <button
+              type="button"
+              @click="kiroSourceType = 'refresh_token'"
+              :class="[
+                'rounded-lg border-2 p-3 text-left transition-all',
+                kiroSourceType === 'refresh_token'
+                  ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20'
+                  : 'border-gray-200 hover:border-cyan-300 dark:border-dark-600 dark:hover:border-cyan-700'
+              ]"
+            >
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">Refresh Token</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">Kiro Desktop</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="kiroSourceType === 'refresh_token'">
+          <label class="input-label">Kiro Desktop Refresh Token</label>
+          <textarea
+            v-model="kiroRefreshToken"
+            rows="4"
+            required
+            class="input font-mono"
+            placeholder="粘贴 Kiro Desktop refresh token；多个账号可每行一个"
+          ></textarea>
+          <p class="input-hint">此模式只按 Kiro Desktop refreshToken 刷新，不伪装 AWS SSO OIDC；短 token 或带 ... 的预览值会被拒绝。</p>
+        </div>
+
+        <div v-if="kiroSourceType === 'json'" class="space-y-3">
+          <div>
+            <label class="input-label">Kiro 凭据 JSON</label>
+            <input type="file" accept=".json,application/json" class="input" @change="handleKiroJSONFile" />
+            <textarea
+              v-model="kiroJSONContent"
+              rows="7"
+              required
+              class="input font-mono"
+              placeholder='{"refreshToken":"...","accessToken":"...","profileArn":"..."}'
+            ></textarea>
+          </div>
+          <div>
+            <label class="input-label">企业 SSO companion JSON（可选）</label>
+            <input type="file" accept=".json,application/json" class="input" @change="handleKiroCompanionJSONFile" />
+            <textarea
+              v-model="kiroCompanionJSON"
+              rows="4"
+              class="input font-mono"
+              placeholder='clientIdHash 场景请上传 ~/.aws/sso/cache/{clientIdHash}.json 或填写 client_id/client_secret'
+            ></textarea>
+          </div>
+        </div>
+
+        <div v-if="kiroSourceType === 'sqlite'" class="space-y-3">
+          <label class="input-label">SQLite 数据库文件</label>
+          <input type="file" accept=".sqlite,.sqlite3,.db,application/octet-stream" class="input" @change="handleKiroSQLiteFile" />
+          <p class="input-hint">
+            读取 auth_kv/state 中 kirocli:social:token、kirocli:odic:token、codewhisperer:odic:token 与 device registration；只导入，不写回原 SQLite。
+          </p>
+        </div>
+
+        <details class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+          <summary class="cursor-pointer text-sm font-medium text-gray-900 dark:text-white">高级覆盖</summary>
+          <div class="mt-4 grid gap-4 md:grid-cols-2">
+            <div>
+              <label class="input-label">刷新区域</label>
+              <input v-model="kiroRegion" type="text" class="input" placeholder="us-east-1" />
+              <p class="input-hint">Desktop auth 或 SSO OIDC token endpoint 的 region。</p>
+            </div>
+            <div>
+              <label class="input-label">Auth Region 覆盖（可选）</label>
+              <input v-model="kiroAuthRegion" type="text" class="input" placeholder="默认使用刷新区域" />
+            </div>
+            <div>
+              <label class="input-label">API 区域覆盖（可选）</label>
+              <input v-model="kiroAPIRegion" type="text" class="input" placeholder="默认从 profile ARN / 凭据检测" />
+            </div>
+            <div>
+              <label class="input-label">Profile ARN（可选）</label>
+              <input v-model="kiroProfileARN" type="text" class="input font-mono" placeholder="arn:aws:codewhisperer:..." />
+            </div>
+            <div>
+              <label class="input-label">Access Token（可选）</label>
+              <input v-model="kiroAccessToken" type="password" class="input font-mono" placeholder="已有 accessToken 可减少首次刷新" />
+            </div>
+            <div>
+              <label class="input-label">Client ID（AWS SSO 可选）</label>
+              <input v-model="kiroClientID" type="text" class="input font-mono" placeholder="从 JSON/SQLite 解析，不足时手填" />
+            </div>
+            <div>
+              <label class="input-label">Client Secret（AWS SSO 可选）</label>
+              <input v-model="kiroClientSecret" type="password" class="input font-mono" placeholder="从 device registration 解析，不足时手填" />
+            </div>
+            <div>
+              <label class="input-label">Machine ID（可选）</label>
+              <input v-model="kiroMachineID" type="text" class="input font-mono" placeholder="留空则按 refresh token 自动派生" />
+            </div>
+            <div>
+              <label class="input-label">Kiro 版本（可选）</label>
+              <input v-model="kiroVersion" type="text" class="input" placeholder="0.7.45" />
+            </div>
+          </div>
+        </details>
+
+        <button
+          type="button"
+          class="rounded-lg border border-cyan-300 px-3 py-2 text-sm font-medium text-cyan-700 hover:bg-cyan-50 dark:border-cyan-700 dark:text-cyan-300 dark:hover:bg-cyan-900/20"
+          :disabled="submitting"
+          @click="handleKiroPreview"
+        >
+          解析预览
+        </button>
+
+        <div v-if="kiroImportPreview.length > 0" class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+          <div class="mb-2 text-sm font-medium text-gray-900 dark:text-white">导入预览</div>
+          <div v-for="item in kiroImportPreview" :key="item.display_name" class="text-xs text-gray-600 dark:text-gray-300">
+            {{ item.display_name }} · {{ formatKiroAuthType(item.auth_type) }} · {{ item.credentials.api_region || item.credentials.region || 'us-east-1' }}
           </div>
         </div>
       </div>
@@ -3105,6 +3273,7 @@ import {
 } from '@/composables/useModelWhitelist'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import type { KiroImportAccount } from '@/api/admin/accounts'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import {
   useAccountOAuth,
@@ -3241,6 +3410,8 @@ interface ModelMapping {
   to: string
 }
 
+type KiroSourceType = 'json' | 'sqlite' | 'refresh_token'
+
 interface TempUnschedRuleForm {
   error_code: number | null
   keywords: string
@@ -3303,6 +3474,21 @@ const allowOverages = ref(false) // For antigravity accounts: enable AI Credits 
 const antigravityAccountType = ref<'oauth' | 'upstream'>('oauth') // For antigravity: oauth or upstream
 const upstreamBaseUrl = ref('') // For upstream type: base URL
 const upstreamApiKey = ref('') // For upstream type: API key
+const kiroSourceType = ref<KiroSourceType>('json')
+const kiroJSONContent = ref('')
+const kiroSQLiteContentBase64 = ref('')
+const kiroRefreshToken = ref('')
+const kiroAccessToken = ref('')
+const kiroProfileARN = ref('')
+const kiroRegion = ref('us-east-1')
+const kiroAuthRegion = ref('')
+const kiroAPIRegion = ref('')
+const kiroClientID = ref('')
+const kiroClientSecret = ref('')
+const kiroMachineID = ref('')
+const kiroVersion = ref('')
+const kiroCompanionJSON = ref('')
+const kiroImportPreview = ref<KiroImportAccount[]>([])
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const antigravityWhitelistModels = ref<string[]>([])
 const antigravityModelMappings = ref<ModelMapping[]>([])
@@ -3453,6 +3639,61 @@ const geminiHelpLinks = {
   countryChange: 'https://policies.google.com/country-association-form'
 }
 
+const readFileAsText = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file'))
+    reader.readAsText(file)
+  })
+
+const readFileAsBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const raw = String(reader.result || '')
+      resolve(raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw)
+    }
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
+
+const readFirstFile = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  return input.files?.[0] || null
+}
+
+const handleKiroJSONFile = async (event: Event) => {
+  const file = readFirstFile(event)
+  if (!file) return
+  kiroJSONContent.value = await readFileAsText(file)
+  kiroImportPreview.value = []
+}
+
+const handleKiroCompanionJSONFile = async (event: Event) => {
+  const file = readFirstFile(event)
+  if (!file) return
+  kiroCompanionJSON.value = await readFileAsText(file)
+}
+
+const handleKiroSQLiteFile = async (event: Event) => {
+  const file = readFirstFile(event)
+  if (!file) return
+  kiroSQLiteContentBase64.value = await readFileAsBase64(file)
+  kiroImportPreview.value = []
+}
+
+const formatKiroAuthType = (authType: string) => {
+  switch (authType) {
+    case 'aws_sso_oidc':
+      return 'AWS SSO OIDC'
+    case 'kiro_desktop':
+      return 'Kiro Desktop'
+    default:
+      return authType || 'Kiro'
+  }
+}
+
 // Computed: current preset mappings based on platform
 const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform))
 const tempUnschedPresets = computed(() => [
@@ -3502,6 +3743,10 @@ const form = reactive({
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
+  // Kiro 只支持导入已存在凭据，不走浏览器 OAuth 流程
+  if (form.platform === 'kiro') {
+    return false
+  }
   // Antigravity upstream 类型不需要 OAuth 流程
   if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
     return false
@@ -3571,6 +3816,10 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
+    if (form.platform === 'kiro') {
+      form.type = 'kiro'
+      return
+    }
     // Antigravity upstream 类型（实际创建为 apikey）
     if (form.platform === 'antigravity' && agType === 'upstream') {
       form.type = 'apikey'
@@ -3615,6 +3864,10 @@ watch(
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
+    } else if (newPlatform === 'kiro') {
+      accountCategory.value = 'apikey'
+      form.type = 'kiro'
+      kiroImportPreview.value = []
     } else {
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -4074,6 +4327,21 @@ const resetForm = () => {
   vertexProjectId.value = ''
   vertexClientEmail.value = ''
   vertexLocation.value = 'global'
+  kiroSourceType.value = 'json'
+  kiroJSONContent.value = ''
+  kiroSQLiteContentBase64.value = ''
+  kiroRefreshToken.value = ''
+  kiroAccessToken.value = ''
+  kiroProfileARN.value = ''
+  kiroRegion.value = 'us-east-1'
+  kiroAuthRegion.value = ''
+  kiroAPIRegion.value = ''
+  kiroClientID.value = ''
+  kiroClientSecret.value = ''
+  kiroMachineID.value = ''
+  kiroVersion.value = ''
+  kiroCompanionJSON.value = ''
+  kiroImportPreview.value = []
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -4243,7 +4511,137 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
   applyVertexServiceAccountJson(await file.text())
 }
 
+const buildKiroImportPayload = () => {
+  const payload: Parameters<typeof adminAPI.accounts.importKiroCredentials>[0] = {
+    source_type: kiroSourceType.value,
+    default_name: form.name.trim() || 'Kiro',
+    region: kiroRegion.value.trim() || undefined,
+    auth_region: kiroAuthRegion.value.trim() || undefined,
+    api_region: kiroAPIRegion.value.trim() || undefined,
+    access_token: kiroAccessToken.value.trim() || undefined,
+    profile_arn: kiroProfileARN.value.trim() || undefined,
+    client_id: kiroClientID.value.trim() || undefined,
+    client_secret: kiroClientSecret.value.trim() || undefined,
+    machine_id: kiroMachineID.value.trim() || undefined,
+    kiro_version: kiroVersion.value.trim() || undefined,
+    companion_json: kiroCompanionJSON.value.trim() || undefined
+  }
+
+  if (kiroSourceType.value === 'refresh_token') {
+    payload.refresh_token = kiroRefreshToken.value.trim()
+  } else if (kiroSourceType.value === 'json') {
+    payload.content = kiroJSONContent.value.trim()
+  } else {
+    payload.content_base64 = kiroSQLiteContentBase64.value.trim()
+  }
+
+  return payload
+}
+
+const validateKiroImportInput = () => {
+  if (kiroSourceType.value === 'refresh_token' && !kiroRefreshToken.value.trim()) {
+    appStore.showError('请填写 Kiro Desktop refresh token')
+    return false
+  }
+  if (kiroSourceType.value === 'json' && !kiroJSONContent.value.trim()) {
+    appStore.showError('请上传或粘贴 Kiro JSON 凭据')
+    return false
+  }
+  if (kiroSourceType.value === 'sqlite' && !kiroSQLiteContentBase64.value.trim()) {
+    appStore.showError('请上传 kiro-cli / amazon-q SQLite 数据库文件')
+    return false
+  }
+  return true
+}
+
+const handleKiroPreview = async () => {
+  if (!validateKiroImportInput()) return
+  submitting.value = true
+  try {
+    const imported = await adminAPI.accounts.importKiroCredentials(buildKiroImportPayload())
+    kiroImportPreview.value = imported.accounts || []
+    if (kiroImportPreview.value.length === 0) {
+      appStore.showError('没有从凭据中解析出可导入的 Kiro 账号')
+    } else {
+      appStore.showSuccess(`已解析 ${kiroImportPreview.value.length} 个 Kiro 账号`)
+    }
+  } catch (error: any) {
+    appStore.showError(error.response?.data?.message || error.response?.data?.detail || error.message || 'Kiro 凭据解析失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+const handleKiroCreate = async () => {
+  if (!form.name.trim()) {
+    appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+    return
+  }
+  if (!validateKiroImportInput()) return
+
+  submitting.value = true
+  try {
+    const imported = await adminAPI.accounts.importKiroCredentials(buildKiroImportPayload())
+    const accounts = imported.accounts || []
+    kiroImportPreview.value = accounts
+    if (accounts.length === 0) {
+      appStore.showError('没有从凭据中解析出可导入的 Kiro 账号')
+      return
+    }
+
+    const createPayloads: CreateAccountRequest[] = accounts.map((account, index) => {
+      const credentials: Record<string, unknown> = { ...account.credentials }
+      if (!applyTempUnschedConfig(credentials)) {
+        throw new Error(t('admin.accounts.tempUnschedulable.rulesInvalid'))
+      }
+      const extra: Record<string, unknown> = { ...(account.extra || {}) }
+      if (account.warning_message) {
+        extra.kiro_import_warning = account.warning_message
+      }
+      return {
+        name: accounts.length > 1 ? `${form.name.trim()} #${index + 1}` : form.name.trim(),
+        notes: form.notes,
+        platform: 'kiro',
+        type: 'kiro',
+        credentials,
+        extra,
+        proxy_id: form.proxy_id,
+        concurrency: form.concurrency,
+        load_factor: form.load_factor ?? undefined,
+        priority: form.priority,
+        rate_multiplier: form.rate_multiplier,
+        group_ids: form.group_ids,
+        expires_at: form.expires_at,
+        auto_pause_on_expired: autoPauseOnExpired.value
+      }
+    })
+
+    if (createPayloads.length === 1) {
+      await adminAPI.accounts.create(createPayloads[0])
+      appStore.showSuccess(t('admin.accounts.accountCreated'))
+    } else {
+      const result = await adminAPI.accounts.batchCreate(createPayloads)
+      if (result.failed > 0) {
+        appStore.showWarning(t('admin.accounts.oauth.batchPartialSuccess', { success: result.success, failed: result.failed }))
+      } else {
+        appStore.showSuccess(t('admin.accounts.oauth.batchSuccess', { count: result.success }))
+      }
+    }
+    emit('created')
+    handleClose()
+  } catch (error: any) {
+    appStore.showError(error.response?.data?.message || error.response?.data?.detail || error.message || 'Kiro 凭据导入失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
 const handleSubmit = async () => {
+  if (form.platform === 'kiro') {
+    await handleKiroCreate()
+    return
+  }
+
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!form.name.trim()) {
